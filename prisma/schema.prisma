@@ -1,0 +1,189 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+  PARENT
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+enum GradeCategory {
+  EXAM
+  QUIZ
+  ASSIGNMENT
+  PROJECT
+}
+
+enum InvoiceStatus {
+  PAID
+  PENDING
+}
+
+enum InvoiceCategory {
+  TUITION
+  TRANSPORT
+  SPORTS
+  LIBRARY
+  LUNCH
+  UNIFORM
+  OTHER
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // Hashed password
+  role      Role     @default(STUDENT)
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Profile relations
+  teacherProfile Teacher?
+  studentProfile Student?
+  parentProfile  Parent?
+}
+
+model Teacher {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  subjects  Subject[] // Subjects this teacher teaches
+  classes   Class[]   // Classes where this teacher is the head teacher
+  lessons   Lesson[]  // Scheduled lessons for this teacher
+  grades    Grade[]   // Grades assigned by this teacher
+}
+
+model Student {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  classId     String
+  class       Class    @relation(fields: [classId], references: [id], onDelete: Restrict)
+  
+  parentId    String?
+  parent      Parent?  @relation(fields: [parentId], references: [id], onDelete: SetNull)
+  
+  attendance  Attendance[]
+  grades      Grade[]
+  invoices    Invoice[]
+}
+
+model Parent {
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  students  Student[] // Children linked to this parent
+}
+
+model Class {
+  id             String    @id @default(uuid())
+  name           String    @unique // e.g. "Grade 10-A"
+  room           String?   // Classroom number
+  
+  classTeacherId String?
+  classTeacher   Teacher?  @relation(fields: [classTeacherId], references: [id], onDelete: SetNull)
+  
+  students       Student[]
+  lessons        Lesson[]
+}
+
+model Subject {
+  id          String    @id @default(uuid())
+  name        String    @unique // e.g. "Mathematics"
+  code        String    @unique // e.g. "MATH101"
+  description String?
+  
+  // Relations
+  teachers    Teacher[] // Teachers qualified to teach this subject
+  lessons     Lesson[]  // Lessons under this subject
+  grades      Grade[]   // Grades under this subject
+}
+
+model Lesson {
+  id        String    @id @default(uuid())
+  subjectId String
+  subject   Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  
+  classId   String
+  class     Class     @relation(fields: [classId], references: [id], onDelete: Cascade)
+  
+  teacherId String
+  teacher   Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  
+  dayOfWeek DayOfWeek
+  startTime String    // e.g. "08:30"
+  endTime   String    // e.g. "09:30"
+  room      String?   // Lab or lecture hall override
+}
+
+model Attendance {
+  id        String           @id @default(uuid())
+  studentId String
+  student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  date      DateTime         // Date of attendance
+  status    AttendanceStatus
+  remarks   String?          // e.g., Reason for absence/lateness
+}
+
+model Grade {
+  id         String        @id @default(uuid())
+  studentId  String
+  student    Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  
+  subjectId  String
+  subject    Subject       @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  
+  teacherId  String
+  teacher    Teacher       @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+  
+  score      Float         // Obtained marks
+  maxScore   Float         // Maximum possible marks
+  percentage Float         // Pre-calculated percentage (score / maxScore * 100)
+  category   GradeCategory
+  feedback   String?       // Teacher feedback comments
+  date       DateTime      @default(now())
+}
+
+model Invoice {
+  id          String          @id @default(uuid())
+  studentId   String
+  student     Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  amount      Float           // Total fee due
+  category    InvoiceCategory // TUITION, TRANSPORT, SPORTS, etc.
+  status      InvoiceStatus   @default(PENDING)
+  title       String          // e.g. "Term 1 Tuition Fee"
+  description String?
+  dueDate     DateTime
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
