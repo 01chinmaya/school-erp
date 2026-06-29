@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Mail,
   Lock,
@@ -178,6 +179,12 @@ export default function LoginPage() {
                 )}
               </button>
             </form>
+            <div className="mt-6 text-center text-xs text-slate-500 dark:text-zinc-400">
+              <span>Don't have an account? </span>
+              <Link href="/signup" className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline">
+                Sign up
+              </Link>
+            </div>
           </div>
 
           {/* Demo Credentials Helper Grid */}
