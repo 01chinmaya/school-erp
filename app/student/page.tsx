@@ -137,13 +137,13 @@ export default function StudentDashboard() {
           <div className="p-6 flex items-center justify-between border-b border-slate-100 dark:border-zinc-800/80">
             <div className="flex items-center gap-2 font-black text-lg tracking-tight text-slate-900 dark:text-white">
               <GraduationCap className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-              <span>Aether Academy</span>
+              <span>CoreEd Dynamics</span>
             </div>
           </div>
 
           <div className="p-6 text-center border-b border-slate-100 dark:border-zinc-800/80 bg-slate-50/50 dark:bg-zinc-950/20">
             <h4 className="font-bold text-sm text-slate-900 dark:text-white">{student?.name ?? "Student Portal"}</h4>
-            <span className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400">{student?.class ?? "Beacon Heights"}</span>
+            <span className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400">{student?.class ?? "Mayur Academy"}</span>
           </div>
 
           {/* Links */}
@@ -217,7 +217,7 @@ export default function StudentDashboard() {
                 <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full translate-x-8 -translate-y-8" />
                 <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 w-fit text-xs font-black uppercase tracking-wider mb-4 border border-white/10">
                   <Sparkles className="w-3.5 h-3.5" />
-                  Beacon Heights Student
+                  Mayur Academy Student
                 </div>
                 <h3 className="text-2xl font-black mb-1">Welcome back, {student?.name}!</h3>
                 <p className="text-xs text-indigo-100 max-w-md">Your academic overview is live. You are currently carrying a cumulative GPA of {student?.gpa}.</p>

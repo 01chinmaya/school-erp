@@ -158,7 +158,7 @@ export default function TeacherAttendance() {
           <div className="p-6 flex items-center justify-between border-b border-slate-100 dark:border-zinc-800/80">
             <div className="flex items-center gap-2 font-black text-lg tracking-tight text-slate-900 dark:text-white">
               <GraduationCap className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-              <span>Beacon School</span>
+              <span>CoreEd Dynamics</span>
             </div>
           </div>
 

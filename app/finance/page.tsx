@@ -164,7 +164,7 @@ export default function FinancePanel() {
           <div className="p-6 flex items-center justify-between border-b border-slate-100 dark:border-zinc-800/80">
             <div className="flex items-center gap-2 font-black text-lg tracking-tight text-slate-900 dark:text-white">
               <GraduationCap className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-              <span>Aether Finance</span>
+              <span>CoreEd Dynamics</span>
             </div>
           </div>
 
@@ -258,8 +258,8 @@ export default function FinancePanel() {
                 {/* School branding */}
                 <div className="flex justify-between items-start border-b border-slate-100 dark:border-zinc-800 pb-6 mb-6">
                   <div>
-                    <h3 className="text-xl font-black text-slate-900 dark:text-white print:text-black">Aether Academy</h3>
-                    <span className="text-[10px] text-slate-400">Beacon Heights, Billing Department</span>
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white print:text-black">Mayur Academy</h3>
+                    <span className="text-[10px] text-slate-400">Mayur Academy, Billing Department</span>
                   </div>
                   <div className="text-right">
                     <span className="text-xs font-bold text-slate-800 dark:text-zinc-200">{selectedInvoice.invoiceNumber}</span>

@@ -89,18 +89,18 @@ export default function LoginPage() {
         <div className="md:col-span-5 flex flex-col justify-center space-y-6 text-center md:text-left">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold text-xs uppercase tracking-wider self-center md:self-start w-fit">
             <Sparkles className="w-3.5 h-3.5" />
-            Academia Portal
+            CoreEd Dynamics
           </div>
           
           <h1 className="text-4xl md:text-5xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
-            Beacon Heights
+            Mayur Academy
             <span className="block bg-gradient-to-r from-indigo-600 to-violet-600 dark:from-indigo-400 dark:to-violet-400 bg-clip-text text-transparent mt-1">
-              School ERP
+              CoreEd Dynamics
             </span>
           </h1>
           
           <p className="text-sm text-slate-500 dark:text-zinc-400 leading-relaxed">
-            Welcome to the Beacon Heights centralized management system. Select any of the pre-configured sandbox demo accounts below to quickly autofill and test each specialized dashboard workflow.
+            Welcome to the Mayur Academy centralized management system. Select any of the pre-configured sandbox demo accounts below to quickly autofill and test each specialized dashboard workflow.
           </p>
 
           {/* Quick Demo Guidelines */}

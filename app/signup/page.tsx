@@ -67,7 +67,7 @@ export default function SignupPage() {
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold text-xs uppercase tracking-wider mb-3">
             <Sparkles className="w-3.5 h-3.5" />
-            Beacon Heights ERP
+            CoreEd Dynamics
           </div>
           <h1 className="text-3xl font-black text-slate-900 dark:text-white">Create Account</h1>
           <p className="text-xs text-slate-500 dark:text-zinc-400 mt-2">Get access to your specialized dashboard viewport</p>
