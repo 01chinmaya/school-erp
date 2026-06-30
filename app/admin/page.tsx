@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Users,
@@ -11,20 +10,19 @@ import {
   LogOut,
   Menu,
   X,
-  Bell,
   Sun,
   Moon,
   AlertCircle,
   Clock,
   Sparkles,
-  ArrowRight,
-  Loader2,
   Plus,
   ShieldCheck,
   Receipt,
   CheckCircle2,
   UserCheck,
-  Link2
+  Link2,
+  Calendar,
+  Loader2
 } from "lucide-react";
 
 interface Activity {
@@ -40,14 +38,12 @@ interface StatsData {
   classCount: number;
   totalCollected: number;
   totalTarget: number;
-  enrollmentData: { month: string; count: number }[];
-  feeData: { month: string; collected: number; target: number }[];
-  activities: Activity[];
 }
 
 interface ClassItem {
   id: string;
   name: string;
+  section: string;
   room: string | null;
 }
 
@@ -69,6 +65,16 @@ interface SubjectItem {
   id: string;
   name: string;
   code: string;
+  passingMarks: number;
+}
+
+interface TimetableItem {
+  id: string;
+  day: string;
+  timeSlot: string;
+  class: { name: string };
+  subject: { name: string };
+  teacher: { user: { name: string } };
 }
 
 export default function AdminDashboard() {
@@ -79,13 +85,8 @@ export default function AdminDashboard() {
   const [isUnapproved, setIsUnapproved] = useState(false);
   const [stats, setStats] = useState<StatsData | null>(null);
 
-  // Clean Navigation Tabs: "activation", "configurator", "finance"
-  const [activeTab, setActiveTab] = useState<"activation" | "configurator" | "finance">("activation");
-
-  // Form Drawer Modal Open States
-  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
-  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
-  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  // Clean Navigation Tabs: "activation", "configurator", "scheduler", "finance"
+  const [activeTab, setActiveTab] = useState<"activation" | "configurator" | "scheduler" | "finance">("activation");
 
   // Dynamic Lists for Selectors
   const [teachers, setTeachers] = useState<StaffItem[]>([]);
@@ -93,11 +94,14 @@ export default function AdminDashboard() {
   const [staffList, setStaffList] = useState<StaffItem[]>([]);
   const [studentList, setStudentList] = useState<StudentItem[]>([]);
   const [subjectsList, setSubjectsList] = useState<SubjectItem[]>([]);
+  const [timetableEntries, setTimetableEntries] = useState<TimetableItem[]>([]);
 
   // Form Inputs
-  const [classForm, setClassForm] = useState({ name: "", room: "", teacherId: "" });
-  const [invoiceForm, setInvoiceForm] = useState({ studentId: "", amount: "", dueDate: "", category: "TUITION", title: "", description: "" });
+  const [classForm, setClassForm] = useState({ name: "", section: "A", room: "", teacherId: "" });
+  const [subjectForm, setSubjectForm] = useState({ name: "", code: "", passingMarks: "40", classId: "" });
   const [mapForm, setMapForm] = useState({ subjectId: "", teacherId: "" });
+  const [timetableForm, setTimetableForm] = useState({ day: "MONDAY", timeSlot: "", classId: "", subjectId: "", teacherId: "" });
+  const [invoiceForm, setInvoiceForm] = useState({ classId: "", studentId: "", amount: "", dueDate: "", category: "TUITION", title: "", description: "" });
 
   // Action status notification banner
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -210,12 +214,27 @@ export default function AdminDashboard() {
     }
   };
 
+  // Fetch timetable entries
+  const fetchTimetable = async () => {
+    try {
+      const email = localStorage.getItem("userEmail") || "";
+      const response = await fetch(`/api/admin/timetable?email=${encodeURIComponent(email)}`);
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setTimetableEntries(data.entries || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch timetable:", error);
+    }
+  };
+
   useEffect(() => {
     fetchStats();
     fetchStaff();
     fetchClasses();
     fetchStudents();
     fetchSubjects();
+    fetchTimetable();
   }, []);
 
   // Trigger data pre-fetching on page updates
@@ -226,10 +245,16 @@ export default function AdminDashboard() {
       fetchStaff();
       fetchClasses();
       fetchSubjects();
+    } else if (activeTab === "scheduler") {
+      fetchClasses();
+      fetchSubjects();
+      fetchStaff();
+      fetchTimetable();
     } else if (activeTab === "finance") {
+      fetchClasses();
       fetchStudents();
     }
-  }, [activeTab, isClassModalOpen, isMapModalOpen, isInvoiceModalOpen]);
+  }, [activeTab]);
 
   // Show status popup banner
   const triggerNotification = (type: "success" | "error", message: string) => {
@@ -256,6 +281,7 @@ export default function AdminDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: classForm.name,
+          section: classForm.section,
           room: classForm.room,
           classTeacherId: classForm.teacherId || null,
         }),
@@ -263,10 +289,8 @@ export default function AdminDashboard() {
 
       const data = await response.json();
       if (response.ok && data.success) {
-        triggerNotification("success", `Class "${classForm.name}" created successfully!`);
-        setClassForm({ name: "", room: "", teacherId: "" });
-        setIsClassModalOpen(false);
-        fetchStats();
+        triggerNotification("success", `Classroom "${classForm.name}" created successfully!`);
+        setClassForm({ name: "", section: "A", room: "", teacherId: "" });
         fetchClasses();
       } else {
         triggerNotification("error", data.error || "Failed to create class.");
@@ -278,7 +302,143 @@ export default function AdminDashboard() {
     }
   };
 
-  // 2. Toggle User Approval Status (Terminal Switch)
+  // 2. Add Subject Submission
+  const handleAddSubject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { name, code, passingMarks, classId } = subjectForm;
+    if (!name || !code) return;
+    setFormSubmitting(true);
+
+    try {
+      const response = await fetch("/api/admin/subjects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "create",
+          name,
+          code,
+          passingMarks: parseInt(passingMarks),
+          classId: classId || null,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        triggerNotification("success", `Subject "${name}" added successfully!`);
+        setSubjectForm({ name: "", code: "", passingMarks: "40", classId: "" });
+        fetchSubjects();
+      } else {
+        triggerNotification("error", data.error || "Failed to add subject.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error. Try again.");
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  // 3. Map Subject to Teacher
+  const handleMapSubject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { subjectId, teacherId } = mapForm;
+    if (!subjectId || !teacherId) return;
+    setFormSubmitting(true);
+
+    try {
+      const response = await fetch("/api/admin/subjects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "map",
+          subjectId,
+          teacherId,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        triggerNotification("success", "Subject mapped to teacher successfully!");
+        setMapForm({ subjectId: "", teacherId: "" });
+        fetchSubjects();
+      } else {
+        triggerNotification("error", data.error || "Mapping failed.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error. Try again.");
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  // 4. Create Timetable Entry Submission
+  const handleCreateTimetable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { day, timeSlot, classId, subjectId, teacherId } = timetableForm;
+    if (!day || !timeSlot || !classId || !subjectId || !teacherId) {
+      triggerNotification("error", "Please fill in all timetable scheduler fields.");
+      return;
+    }
+    setFormSubmitting(true);
+
+    try {
+      const response = await fetch("/api/admin/timetable", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ day, timeSlot, classId, subjectId, teacherId }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        triggerNotification("success", "Lesson scheduled in timetable successfully!");
+        setTimetableForm({ day: "MONDAY", timeSlot: "", classId: "", subjectId: "", teacherId: "" });
+        fetchTimetable();
+      } else {
+        triggerNotification("error", data.error || "Scheduling failed.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error scheduling lesson.");
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  // 5. Generate Class Billing/Invoice Submission
+  const handleIssueInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { classId, studentId, amount, dueDate, category, title, description } = invoiceForm;
+    if (!amount || !dueDate || !category || !title) {
+      triggerNotification("error", "Please fill in all billing parameters.");
+      return;
+    }
+    if (!classId && !studentId) {
+      triggerNotification("error", "Please select a target Classroom section or a specific Student ID.");
+      return;
+    }
+    setFormSubmitting(true);
+
+    try {
+      const response = await fetch("/api/admin/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classId, studentId, amount, dueDate, category, title, description }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        const count = data.count ? `issued ${data.count} class invoices` : "issued student invoice";
+        triggerNotification("success", `Billing center operations completed successfully (${count})!`);
+        setInvoiceForm({ classId: "", studentId: "", amount: "", dueDate: "", category: "TUITION", title: "", description: "" });
+      } else {
+        triggerNotification("error", data.error || "Billing creation failed.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error. Try again.");
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  // 6. User Approval Operations
   const handleToggleApproval = async (userId: string, currentApproved: boolean, role: string, hasProfile: boolean) => {
     try {
       const response = await fetch("/api/admin/staff", {
@@ -293,80 +453,14 @@ export default function AdminDashboard() {
 
       const data = await response.json();
       if (response.ok && data.success) {
-        triggerNotification("success", `User access updated successfully!`);
+        triggerNotification("success", `User activation updated successfully!`);
         fetchStaff();
         fetchStats();
       } else {
-        triggerNotification("error", data.error || "Update operation failed.");
+        triggerNotification("error", data.error || "Activation toggle failed.");
       }
     } catch (error) {
-      triggerNotification("error", "Network error updating staff.");
-    }
-  };
-
-  // 3. Issue Fee Invoice Submission
-  const handleIssueInvoice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { studentId, amount, dueDate, category, title, description } = invoiceForm;
-    if (!studentId || !amount || !dueDate || !category || !title) {
-      triggerNotification("error", "Please fill in all required fields.");
-      return;
-    }
-    setFormSubmitting(true);
-
-    try {
-      const response = await fetch("/api/admin/invoices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ studentId, amount, dueDate, category, title, description }),
-      });
-
-      const data = await response.json();
-      if (response.ok && data.success) {
-        triggerNotification("success", `Fee invoice issued successfully!`);
-        setInvoiceForm({ studentId: "", amount: "", dueDate: "", category: "TUITION", title: "", description: "" });
-        setIsInvoiceModalOpen(false);
-        fetchStats();
-      } else {
-        triggerNotification("error", data.error || "Invoice issuance failed.");
-      }
-    } catch (error) {
-      triggerNotification("error", "Network error. Try again.");
-    } finally {
-      setFormSubmitting(false);
-    }
-  };
-
-  // 4. Map Subject to Teacher Submission
-  const handleMapSubject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { subjectId, teacherId } = mapForm;
-    if (!subjectId || !teacherId) {
-      triggerNotification("error", "Please select both subject and teacher.");
-      return;
-    }
-    setFormSubmitting(true);
-
-    try {
-      const response = await fetch("/api/admin/subjects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "map", subjectId, teacherId }),
-      });
-
-      const data = await response.json();
-      if (response.ok && data.success) {
-        triggerNotification("success", "Subject mapped to teacher successfully!");
-        setMapForm({ subjectId: "", teacherId: "" });
-        setIsMapModalOpen(false);
-        fetchSubjects();
-      } else {
-        triggerNotification("error", data.error || "Mapping failed.");
-      }
-    } catch (error) {
-      triggerNotification("error", "Network error. Try again.");
-    } finally {
-      setFormSubmitting(false);
+      triggerNotification("error", "Network error updating user.");
     }
   };
 
@@ -387,13 +481,12 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Access checks */}
       {loading ? (
         <div className="flex items-center justify-center flex-grow h-screen">
           <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
         </div>
       ) : isUnapproved ? (
-        /* Blocked warning screen for unapproved administrative viewports */
         <div className="flex items-center justify-center flex-grow p-8">
           <div className="flex flex-col items-center justify-center p-12 rounded-3xl bg-white/70 dark:bg-zinc-900/60 backdrop-blur-xl border border-indigo-100 dark:border-zinc-800 text-center max-w-lg mx-auto my-12 shadow-xl animate-fade-in">
             <div className="p-4 rounded-full bg-amber-50 dark:bg-amber-950/20 text-amber-500 border border-amber-100 dark:border-amber-900/30 mb-5 animate-pulse">
@@ -401,7 +494,7 @@ export default function AdminDashboard() {
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Denied</h3>
             <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
-              Account pending administrative activation. Please contact the Mayur Academy administration desk.
+              Account pending administrative verification at Mayur Academy.
             </p>
             <button
               onClick={handleLogout}
@@ -414,6 +507,7 @@ export default function AdminDashboard() {
         </div>
       ) : (
         <div className="flex flex-grow">
+          
           {/* Sidebar Navigation */}
           <aside className={`bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 transition-all duration-300 flex flex-col justify-between z-20 ${
             isSidebarOpen ? "w-64" : "w-20"
@@ -430,7 +524,7 @@ export default function AdminDashboard() {
                 )}
               </div>
 
-              {/* Sidebar Active Control Tabs Selector */}
+              {/* Sidebar Active Control Tabs Selector (4 Operation Centers) */}
               <nav className="p-4 space-y-2">
                 <button
                   onClick={() => setActiveTab("activation")}
@@ -457,6 +551,18 @@ export default function AdminDashboard() {
                 </button>
 
                 <button
+                  onClick={() => setActiveTab("scheduler")}
+                  className={`flex items-center gap-4 w-full p-3 rounded-xl font-bold text-sm text-left transition-all ${
+                    activeTab === "scheduler"
+                      ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400"
+                      : "text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800/50 hover:text-slate-900 dark:hover:text-white"
+                  }`}
+                >
+                  <Calendar className="w-5 h-5" />
+                  {isSidebarOpen && <span>Scheduler Desk</span>}
+                </button>
+
+                <button
                   onClick={() => setActiveTab("finance")}
                   className={`flex items-center gap-4 w-full p-3 rounded-xl font-bold text-sm text-left transition-all ${
                     activeTab === "finance"
@@ -465,7 +571,7 @@ export default function AdminDashboard() {
                   }`}
                 >
                   <DollarSign className="w-5 h-5" />
-                  {isSidebarOpen && <span>Finance Desk</span>}
+                  {isSidebarOpen && <span>Billing Center</span>}
                 </button>
               </nav>
             </div>
@@ -491,7 +597,7 @@ export default function AdminDashboard() {
                 >
                   {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
                 </button>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Mayur Academy Admin Desk</h2>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Mayur Academy Admin Control</h2>
               </div>
 
               <div className="flex items-center gap-4">
@@ -508,22 +614,25 @@ export default function AdminDashboard() {
             <div className="flex-grow p-8 overflow-y-auto">
               <div className="space-y-8 max-w-6xl mx-auto">
 
-                {/* 1. USER ACTIVATION TERMINAL TAB */}
+                {/* 1. USER ACTIVATION QUEUE TAB */}
                 {activeTab === "activation" && (
                   <div className="space-y-6">
                     <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg relative overflow-hidden">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full translate-x-8 -translate-y-8" />
                       <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 w-fit text-xs font-black uppercase tracking-wider mb-4 border border-white/10">
                         <Sparkles className="w-3.5 h-3.5" />
-                        Credentials Verification Suite
+                        Credentials Verification Queue
                       </div>
-                      <h3 className="text-2xl font-black mb-1">User Activation Terminal</h3>
-                      <p className="text-xs text-indigo-100 max-w-md">Activate or suspend staff/parents to grant/revoke dashboard rights instantly.</p>
+                      <h3 className="text-2xl font-black mb-1">User Activation Queue</h3>
+                      <p className="text-xs text-indigo-100 max-w-md">Activate pending faculty and student accounts to grant dashboard access.</p>
                     </div>
 
                     <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl">
-                      {(staffList || []).length === 0 ? (
-                        <p className="text-xs text-slate-400 text-center py-4">No registered users in the database.</p>
+                      {pendingUsers.length === 0 ? (
+                        <div className="text-center py-8">
+                          <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2" />
+                          <p className="text-xs text-slate-500 dark:text-zinc-400 font-bold">No pending user activations found.</p>
+                        </div>
                       ) : (
                         <div className="overflow-x-auto">
                           <table className="w-full text-left border-collapse">
@@ -531,26 +640,16 @@ export default function AdminDashboard() {
                               <tr className="border-b border-slate-100 dark:border-zinc-800 text-slate-400 text-xs font-bold bg-slate-50/50 dark:bg-zinc-950/20">
                                 <th className="p-3 pl-4">User Detail</th>
                                 <th className="p-3">Email Address</th>
-                                <th className="p-3">Access Level</th>
-                                <th className="p-3">Live Status</th>
+                                <th className="p-3">Requested Role</th>
                                 <th className="p-3 text-right pr-4">Action Switch</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs">
-                              {(staffList || []).map(usr => (
+                              {pendingUsers.map(usr => (
                                 <tr key={usr.id} className="hover:bg-slate-50/30 dark:hover:bg-zinc-800/10 transition-colors">
                                   <td className="p-3 pl-4 font-bold text-slate-900 dark:text-white">{usr.name}</td>
                                   <td className="p-3 text-slate-500 dark:text-zinc-400">{usr.email}</td>
                                   <td className="p-3 font-semibold text-indigo-500">{usr.role}</td>
-                                  <td className="p-3">
-                                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                      usr.approved 
-                                        ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400"
-                                        : "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400"
-                                    }`}>
-                                      {usr.approved ? "ACTIVE" : "PENDING"}
-                                    </span>
-                                  </td>
                                   <td className="p-3 text-right pr-4">
                                     <div className="flex justify-end gap-2">
                                       {usr.role === "TEACHER" && !usr.hasProfile && (
@@ -563,13 +662,9 @@ export default function AdminDashboard() {
                                       )}
                                       <button
                                         onClick={() => handleToggleApproval(usr.id, usr.approved, usr.role, true)}
-                                        className={`rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
-                                          usr.approved 
-                                            ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100"
-                                            : "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100"
-                                        }`}
+                                        className="bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer"
                                       >
-                                        {usr.approved ? "Revoke Access" : "Approve User"}
+                                        Approve
                                       </button>
                                     </div>
                                   </td>
@@ -583,294 +678,434 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* 2. ACADEMIC CONFIGURATOR TAB */}
+                {/* 2. ACADEMIC SETUP DESK TAB */}
                 {activeTab === "configurator" && (
+                  <div className="space-y-8">
+                    <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full translate-x-8 -translate-y-8" />
+                      <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 w-fit text-xs font-black uppercase tracking-wider mb-4 border border-white/10">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Syllabus & classroom setup
+                      </div>
+                      <h3 className="text-2xl font-black mb-1">Academic Setup Desk</h3>
+                      <p className="text-xs text-indigo-100 max-w-md">Setup classrooms, add subjects with custom pass criteria, and map teachers to courses.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                      {/* Create Class Form */}
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl space-y-4">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                          <Plus className="w-4 h-4 text-indigo-500" />
+                          Initialize Class
+                        </h4>
+                        <form onSubmit={handleCreateClass} className="space-y-3">
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Class/Section Name</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Grade 10"
+                              value={classForm.name}
+                              onChange={(e) => setClassForm(p => ({ ...p, name: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Section Code</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. A"
+                              value={classForm.section}
+                              onChange={(e) => setClassForm(p => ({ ...p, section: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Room Number</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Rm 204"
+                              value={classForm.room}
+                              onChange={(e) => setClassForm(p => ({ ...p, room: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={formSubmitting}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2 font-bold text-xs transition-all cursor-pointer"
+                          >
+                            Create Class
+                          </button>
+                        </form>
+                      </div>
+
+                      {/* Add Subject Form */}
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl space-y-4">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                          <BookOpen className="w-4 h-4 text-indigo-500" />
+                          Add Subject
+                        </h4>
+                        <form onSubmit={handleAddSubject} className="space-y-3">
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Subject Name</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Mathematics"
+                              value={subjectForm.name}
+                              onChange={(e) => setSubjectForm(p => ({ ...p, name: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Subject Code</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="MATH10"
+                                value={subjectForm.code}
+                                onChange={(e) => setSubjectForm(p => ({ ...p, code: e.target.value }))}
+                                className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Passing Marks</label>
+                              <input
+                                type="number"
+                                required
+                                value={subjectForm.passingMarks}
+                                onChange={(e) => setSubjectForm(p => ({ ...p, passingMarks: e.target.value }))}
+                                className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Link to Classroom</label>
+                            <select
+                              required
+                              value={subjectForm.classId}
+                              onChange={(e) => setSubjectForm(p => ({ ...p, classId: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+                            >
+                              <option value="">Select class...</option>
+                              {(classList || []).map(c => (
+                                <option key={c.id} value={c.id}>{c.name} (Sec {c.section})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={formSubmitting}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2 font-bold text-xs transition-all cursor-pointer"
+                          >
+                            Add Subject
+                          </button>
+                        </form>
+                      </div>
+
+                      {/* Map Subject to Teacher Form */}
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl space-y-4">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                          <Link2 className="w-4 h-4 text-indigo-500" />
+                          Map Subject
+                        </h4>
+                        <form onSubmit={handleMapSubject} className="space-y-3">
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Select Subject</label>
+                            <select
+                              required
+                              value={mapForm.subjectId}
+                              onChange={(e) => setMapForm(p => ({ ...p, subjectId: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+                            >
+                              <option value="">Select subject...</option>
+                              {(subjectsList || []).map(s => (
+                                <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Select Instructor</label>
+                            <select
+                              required
+                              value={mapForm.teacherId}
+                              onChange={(e) => setMapForm(p => ({ ...p, teacherId: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+                            >
+                              <option value="">Select teacher...</option>
+                              {(teachers || []).map(t => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={formSubmitting}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2 font-bold text-xs transition-all cursor-pointer"
+                          >
+                            Map Subject
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. TIMETABLE SCHEDULER TAB */}
+                {activeTab === "scheduler" && (
                   <div className="space-y-6">
                     <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg relative overflow-hidden">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full translate-x-8 -translate-y-8" />
                       <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 w-fit text-xs font-black uppercase tracking-wider mb-4 border border-white/10">
                         <Sparkles className="w-3.5 h-3.5" />
-                        Syllabus & Room Registry
+                        Timetable Registry matrix
                       </div>
-                      <h3 className="text-2xl font-black mb-1">Academic Configurator</h3>
-                      <p className="text-xs text-indigo-100 max-w-md">Initialize new classes, allocate study rooms, and map qualified teachers to subjects.</p>
+                      <h3 className="text-2xl font-black mb-1">Timetable Scheduler</h3>
+                      <p className="text-xs text-indigo-100 max-w-md">Schedule courses and weekly timetable slots dynamically across classes.</p>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      <button
-                        onClick={() => setIsClassModalOpen(true)}
-                        className="flex flex-col items-center justify-center p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800/40 transition-all cursor-pointer"
-                      >
-                        <Plus className="w-8 h-8 text-indigo-600 dark:text-indigo-400 mb-2" />
-                        <span className="font-bold text-sm text-slate-800 dark:text-zinc-200">Create New Class/Section</span>
-                        <span className="text-[10px] text-slate-400 mt-1">Set section name & class teacher assignment</span>
-                      </button>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                      {/* Scheduler Form */}
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl h-fit space-y-4">
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-indigo-500" />
+                          Add Timetable Entry
+                        </h4>
+                        <form onSubmit={handleCreateTimetable} className="space-y-3">
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Weekday</label>
+                            <select
+                              value={timetableForm.day}
+                              onChange={(e) => setTimetableForm(p => ({ ...p, day: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none"
+                            >
+                              <option value="MONDAY">Monday</option>
+                              <option value="TUESDAY">Tuesday</option>
+                              <option value="WEDNESDAY">Wednesday</option>
+                              <option value="THURSDAY">Thursday</option>
+                              <option value="FRIDAY">Friday</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Time Slot (e.g. 08:30-09:30)</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. 08:30-09:30"
+                              value={timetableForm.timeSlot}
+                              onChange={(e) => setTimetableForm(p => ({ ...p, timeSlot: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Classroom</label>
+                            <select
+                              required
+                              value={timetableForm.classId}
+                              onChange={(e) => setTimetableForm(p => ({ ...p, classId: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs"
+                            >
+                              <option value="">Select class...</option>
+                              {(classList || []).map(c => (
+                                <option key={c.id} value={c.id}>{c.name} (Sec {c.section})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Subject</label>
+                            <select
+                              required
+                              value={timetableForm.subjectId}
+                              onChange={(e) => setTimetableForm(p => ({ ...p, subjectId: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs"
+                            >
+                              <option value="">Select subject...</option>
+                              {(subjectsList || []).map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Teacher</label>
+                            <select
+                              required
+                              value={timetableForm.teacherId}
+                              onChange={(e) => setTimetableForm(p => ({ ...p, teacherId: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs"
+                            >
+                              <option value="">Select teacher...</option>
+                              {(teachers || []).map(t => (
+                                <option key={t.id} value={t.id}>{t.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={formSubmitting}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-2 font-bold text-xs"
+                          >
+                            Schedule Entry
+                          </button>
+                        </form>
+                      </div>
 
-                      <button
-                        onClick={() => setIsMapModalOpen(true)}
-                        className="flex flex-col items-center justify-center p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800/40 transition-all cursor-pointer"
-                      >
-                        <Link2 className="w-8 h-8 text-indigo-600 dark:text-indigo-400 mb-2" />
-                        <span className="font-bold text-sm text-slate-800 dark:text-zinc-200">Map Subject to Teacher</span>
-                        <span className="text-[10px] text-slate-400 mt-1">Link subjects/courses to faculty members</span>
-                      </button>
-                    </div>
-
-                    {/* Classes lists preview */}
-                    <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl">
-                      <h4 className="font-bold text-xs uppercase text-slate-400 mb-4 tracking-wider">Registered Classrooms</h4>
-                      {(classList || []).length === 0 ? (
-                        <p className="text-xs text-slate-400 text-center py-4">No classes initialized yet.</p>
-                      ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                          {(classList || []).map(cls => (
-                            <div key={cls.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-100 dark:border-zinc-800/50">
-                              <span className="block font-bold text-sm text-slate-900 dark:text-white">{cls.name}</span>
-                              <span className="block text-[10px] text-slate-400 mt-1">Room: {cls.room || "N/A"}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      {/* Timetable entries preview */}
+                      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl lg:col-span-2 space-y-4">
+                        <h4 className="font-bold text-xs uppercase text-slate-400 tracking-wider">Scheduled Weekly Timetable</h4>
+                        {(timetableEntries || []).length === 0 ? (
+                          <p className="text-xs text-slate-400 text-center py-8">No timetable scheduled entries found.</p>
+                        ) : (
+                          <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
+                            {(timetableEntries || []).map(entry => (
+                              <div key={entry.id} className="flex justify-between items-center p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-100 dark:border-zinc-800/50 text-xs">
+                                <div>
+                                  <span className="block font-bold text-slate-900 dark:text-white">{entry.subject?.name}</span>
+                                  <span className="block text-[10px] text-slate-400">{entry.class?.name} | Teacher: {entry.teacher?.user?.name}</span>
+                                </div>
+                                <div className="text-right">
+                                  <span className="block font-bold text-indigo-500">{entry.day}</span>
+                                  <span className="block text-[9px] text-slate-400">{entry.timeSlot}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* 3. FINANCE DESK TAB */}
+                {/* 4. BILLING CENTER TAB */}
                 {activeTab === "finance" && (
                   <div className="space-y-6">
                     <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg relative overflow-hidden">
                       <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full translate-x-8 -translate-y-8" />
                       <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 w-fit text-xs font-black uppercase tracking-wider mb-4 border border-white/10">
                         <Sparkles className="w-3.5 h-3.5" />
-                        Accounts Ledger desk
+                        Class Billing portal
                       </div>
-                      <h3 className="text-2xl font-black mb-1">Finance Desk</h3>
-                      <p className="text-xs text-indigo-100 max-w-md">Emit dynamic invoices, track total outstanding tuition fees, and manage parent ledgers.</p>
+                      <h3 className="text-2xl font-black mb-1">Billing Center</h3>
+                      <p className="text-xs text-indigo-100 max-w-md">Emit batch invoices for an entire class section at once or generate single fee items.</p>
                     </div>
 
-                    <button
-                      onClick={() => setIsInvoiceModalOpen(true)}
-                      className="flex flex-col items-center justify-center p-8 rounded-3xl w-full border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800/40 transition-all cursor-pointer"
-                    >
-                      <Receipt className="w-8 h-8 text-indigo-600 dark:text-indigo-400 mb-2" />
-                      <span className="font-bold text-sm text-slate-800 dark:text-zinc-200">Generate Student Fee Invoice</span>
-                      <span className="text-[10px] text-slate-400 mt-1">Issue tuition, transport, or lab fee invoices</span>
-                    </button>
+                    <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl max-w-xl mx-auto space-y-6">
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                        <Receipt className="w-4 h-4 text-indigo-500" />
+                        Generate Class Invoice
+                      </h4>
+                      <form onSubmit={handleIssueInvoice} className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Target Class (Batch)</label>
+                            <select
+                              value={invoiceForm.classId}
+                              onChange={(e) => setInvoiceForm(p => ({ ...p, classId: e.target.value, studentId: "" }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs cursor-pointer"
+                            >
+                              <option value="">Optional: Select class section...</option>
+                              {(classList || []).map(c => (
+                                <option key={c.id} value={c.id}>{c.name} (Sec {c.section})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Or Specific Student</label>
+                            <select
+                              value={invoiceForm.studentId}
+                              onChange={(e) => setInvoiceForm(p => ({ ...p, studentId: e.target.value, classId: "" }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs cursor-pointer"
+                            >
+                              <option value="">Optional: Choose pupil...</option>
+                              {(studentList || []).map(s => (
+                                <option key={s.id} value={s.id}>{s.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Amount ($)</label>
+                            <input
+                              type="number"
+                              required
+                              placeholder="e.g. 500"
+                              value={invoiceForm.amount}
+                              onChange={(e) => setInvoiceForm(p => ({ ...p, amount: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Fee Category</label>
+                            <select
+                              value={invoiceForm.category}
+                              onChange={(e) => setInvoiceForm(p => ({ ...p, category: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs font-semibold"
+                            >
+                              <option value="TUITION">TUITION</option>
+                              <option value="TRANSPORT">TRANSPORT</option>
+                              <option value="SPORTS">SPORTS</option>
+                              <option value="LIBRARY">LIBRARY</option>
+                              <option value="LUNCH">LUNCH</option>
+                              <option value="UNIFORM">UNIFORM</option>
+                              <option value="OTHER">OTHER</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Due Date</label>
+                            <input
+                              type="date"
+                              required
+                              value={invoiceForm.dueDate}
+                              onChange={(e) => setInvoiceForm(p => ({ ...p, dueDate: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Invoice Header Title</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Term 3 Tuition Fee"
+                              value={invoiceForm.title}
+                              onChange={(e) => setInvoiceForm(p => ({ ...p, title: e.target.value }))}
+                              className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[9px] font-black uppercase text-slate-400 mb-1">Description Details</label>
+                          <textarea
+                            placeholder="Additional invoice billing description details..."
+                            value={invoiceForm.description}
+                            onChange={(e) => setInvoiceForm(p => ({ ...p, description: e.target.value }))}
+                            rows={3}
+                            className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={formSubmitting}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 font-bold text-xs"
+                        >
+                          Generate Invoices
+                        </button>
+                      </form>
+                    </div>
                   </div>
                 )}
 
               </div>
             </div>
           </main>
-        </div>
-      )}
-
-      {/* -------------------- 1. CREATE NEW CLASS MODAL -------------------- */}
-      {isClassModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-black/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in">
-            <div className="p-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center">
-              <h3 className="font-bold text-slate-900 dark:text-white">Create Class/Section</h3>
-              <button onClick={() => setIsClassModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">
-                <X className="w-5 h-5 text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleCreateClass} className="p-6 space-y-4">
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Class/Section Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Grade 10-A"
-                  value={classForm.name}
-                  onChange={(e) => setClassForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Room Assignment</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Room 302"
-                  value={classForm.room}
-                  onChange={(e) => setClassForm(prev => ({ ...prev, room: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Class Teacher</label>
-                <select
-                  value={classForm.teacherId}
-                  onChange={(e) => setClassForm(prev => ({ ...prev, teacherId: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
-                >
-                  <option value="">Unassigned</option>
-                  {(teachers || []).map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="submit"
-                disabled={formSubmitting}
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl py-3 font-bold text-xs hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
-              >
-                {formSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Create Class
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* -------------------- 2. MAP SUBJECT TO TEACHER MODAL -------------------- */}
-      {isMapModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-black/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in">
-            <div className="p-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center">
-              <h3 className="font-bold text-slate-900 dark:text-white">Map Subject to Teacher</h3>
-              <button onClick={() => setIsMapModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">
-                <X className="w-5 h-5 text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleMapSubject} className="p-6 space-y-4">
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Select Subject</label>
-                <select
-                  required
-                  value={mapForm.subjectId}
-                  onChange={(e) => setMapForm(prev => ({ ...prev, subjectId: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
-                >
-                  <option value="">Select subject option...</option>
-                  {(subjectsList || []).map(s => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Select Faculty Teacher</label>
-                <select
-                  required
-                  value={mapForm.teacherId}
-                  onChange={(e) => setMapForm(prev => ({ ...prev, teacherId: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
-                >
-                  <option value="">Select teacher profile...</option>
-                  {(teachers || []).map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="submit"
-                disabled={formSubmitting}
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl py-3 font-bold text-xs hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
-              >
-                {formSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Map Subject
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* -------------------- 3. GENERATE STUDENT FEE INVOICE MODAL -------------------- */}
-      {isInvoiceModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-black/60 backdrop-blur-md">
-          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in">
-            <div className="p-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center">
-              <h3 className="font-bold text-slate-900 dark:text-white">Generate Student Fee Invoice</h3>
-              <button onClick={() => setIsInvoiceModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">
-                <X className="w-5 h-5 text-slate-400" />
-              </button>
-            </div>
-            <form onSubmit={handleIssueInvoice} className="p-6 space-y-4">
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Select Student</label>
-                <select
-                  required
-                  value={invoiceForm.studentId}
-                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, studentId: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
-                >
-                  <option value="">Choose pupil...</option>
-                  {(studentList || []).map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Amount ($)</label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    placeholder="e.g. 500"
-                    value={invoiceForm.amount}
-                    onChange={(e) => setInvoiceForm(prev => ({ ...prev, amount: e.target.value }))}
-                    className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Category</label>
-                  <select
-                    value={invoiceForm.category}
-                    onChange={(e) => setInvoiceForm(prev => ({ ...prev, category: e.target.value }))}
-                    className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
-                  >
-                    <option value="TUITION">TUITION</option>
-                    <option value="TRANSPORT">TRANSPORT</option>
-                    <option value="SPORTS">SPORTS</option>
-                    <option value="LIBRARY">LIBRARY</option>
-                    <option value="LUNCH">LUNCH</option>
-                    <option value="UNIFORM">UNIFORM</option>
-                    <option value="OTHER">OTHER</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Due Date</label>
-                <input
-                  type="date"
-                  required
-                  value={invoiceForm.dueDate}
-                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, dueDate: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Invoice Title</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Q3 Biology Material Fee"
-                  value={invoiceForm.title}
-                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, title: e.target.value }))}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Description</label>
-                <textarea
-                  placeholder="Additional invoice billing descriptions..."
-                  value={invoiceForm.description}
-                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, description: e.target.value }))}
-                  rows={2}
-                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={formSubmitting}
-                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl py-3 font-bold text-xs hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
-              >
-                {formSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                Generate Invoice
-              </button>
-            </form>
-          </div>
         </div>
       )}
 

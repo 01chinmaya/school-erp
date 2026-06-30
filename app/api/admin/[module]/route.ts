@@ -86,15 +86,31 @@ export async function GET(
     if (module === "subjects") {
       const subjects = await db.subject.findMany({
         include: {
-          teachers: {
+          teacher: {
+            include: {
+              user: true,
+            },
+          },
+          class: true,
+        },
+        orderBy: { name: "asc" },
+      });
+      return NextResponse.json({ success: true, subjects });
+    }
+
+    if (module === "timetable") {
+      const entries = await db.timetableEntry.findMany({
+        include: {
+          class: true,
+          subject: true,
+          teacher: {
             include: {
               user: true,
             },
           },
         },
-        orderBy: { name: "asc" },
       });
-      return NextResponse.json({ success: true, subjects });
+      return NextResponse.json({ success: true, entries });
     }
 
     return NextResponse.json({ error: "Module not found" }, { status: 404 });
@@ -114,7 +130,7 @@ export async function POST(
     const body = await request.json();
 
     if (module === "classes") {
-      const { name, room, classTeacherId } = body;
+      const { name, section, room, classTeacherId } = body;
       if (!name) {
         return NextResponse.json({ error: "Class name is required" }, { status: 400 });
       }
@@ -122,6 +138,7 @@ export async function POST(
       const newClass = await db.class.create({
         data: {
           name,
+          section: section || "A",
           room: room || null,
           classTeacherId: classTeacherId || null,
         },
@@ -162,13 +179,11 @@ export async function POST(
         return NextResponse.json({ error: "Name, email, password, and classId are required" }, { status: 400 });
       }
 
-      // Check class
       const classExists = await db.class.findUnique({ where: { id: classId } });
       if (!classExists) {
         return NextResponse.json({ error: "Class not found" }, { status: 404 });
       }
 
-      // Check email
       const existing = await db.user.findUnique({ where: { email } });
       if (existing) {
         return NextResponse.json({ error: "Email already registered" }, { status: 400 });
@@ -180,7 +195,7 @@ export async function POST(
           email,
           password,
           role: "STUDENT",
-          approved: true, // Default active on manual enrollment
+          approved: true,
           studentProfile: {
             create: { classId },
           },
@@ -190,14 +205,43 @@ export async function POST(
     }
 
     if (module === "invoices") {
-      const { studentId, amount, dueDate, category, title, description } = body;
-      if (!studentId || !amount || !dueDate || !category || !title) {
-        return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      const { classId, studentId, amount, dueDate, category, title, description } = body;
+      const price = parseInt(amount);
+
+      if (isNaN(price) || price <= 0 || !dueDate || !category || !title) {
+        return NextResponse.json({ error: "Missing or invalid fields" }, { status: 400 });
       }
 
-      const price = parseFloat(amount);
-      if (isNaN(price) || price <= 0) {
-        return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+      // Batch Invoice Generation for an entire class section at once
+      if (classId) {
+        const students = await db.student.findMany({
+          where: { classId },
+        });
+
+        if (students.length === 0) {
+          return NextResponse.json({ error: "No students registered in this class section" }, { status: 400 });
+        }
+
+        const invoiceRecords = students.map(std => ({
+          studentId: std.id,
+          amount: price,
+          dueDate: new Date(dueDate),
+          category,
+          title,
+          description: description || null,
+          status: "UNPAID",
+        }));
+
+        await db.invoice.createMany({
+          data: invoiceRecords,
+        });
+
+        return NextResponse.json({ success: true, count: invoiceRecords.length });
+      }
+
+      // Single student invoice fallback
+      if (!studentId) {
+        return NextResponse.json({ error: "Student ID or Class ID is required" }, { status: 400 });
       }
 
       const newInvoice = await db.invoice.create({
@@ -208,14 +252,14 @@ export async function POST(
           category,
           title,
           description: description || null,
-          status: "PENDING",
+          status: "UNPAID",
         },
       });
       return NextResponse.json({ success: true, invoice: newInvoice });
     }
 
     if (module === "subjects") {
-      const { action, name, code, description, subjectId, teacherId } = body;
+      const { action, name, code, passingMarks, description, classId, subjectId, teacherId } = body;
 
       if (action === "create") {
         if (!name || !code) {
@@ -225,7 +269,9 @@ export async function POST(
           data: {
             name,
             code,
+            passingMarks: passingMarks ? parseInt(passingMarks) : 40,
             description: description || null,
+            classId: classId || null,
           },
         });
         return NextResponse.json({ success: true, subject: newSubject });
@@ -236,16 +282,35 @@ export async function POST(
           return NextResponse.json({ error: "subjectId and teacherId are required" }, { status: 400 });
         }
 
-        const updatedTeacher = await db.teacher.update({
-          where: { id: teacherId },
+        const updatedSubject = await db.subject.update({
+          where: { id: subjectId },
           data: {
-            subjects: {
-              connect: { id: subjectId },
+            teacherId: teacherId || null,
+            teachers: {
+              connect: { id: teacherId },
             },
           },
         });
-        return NextResponse.json({ success: true, teacher: updatedTeacher });
+        return NextResponse.json({ success: true, subject: updatedSubject });
       }
+    }
+
+    if (module === "timetable") {
+      const { day, timeSlot, classId, subjectId, teacherId } = body;
+      if (!day || !timeSlot || !classId || !subjectId || !teacherId) {
+        return NextResponse.json({ error: "Missing required fields for timetable entry" }, { status: 400 });
+      }
+
+      const entry = await db.timetableEntry.create({
+        data: {
+          day,
+          timeSlot,
+          classId,
+          subjectId,
+          teacherId,
+        },
+      });
+      return NextResponse.json({ success: true, entry });
     }
 
     return NextResponse.json({ error: "Module not found" }, { status: 404 });

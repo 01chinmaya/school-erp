@@ -33,8 +33,8 @@ export async function GET(request: Request) {
     const studentId = user.studentProfile.id;
     const classId = user.studentProfile.classId;
 
-    // 1. Fetch Timetable/Lessons
-    const lessons = await db.lesson.findMany({
+    // 1. Fetch Timetable Entries
+    const timetableEntries = await db.timetableEntry.findMany({
       where: { classId },
       include: {
         subject: true,
@@ -46,13 +46,13 @@ export async function GET(request: Request) {
       },
     });
 
-    const mappedTimetable = lessons.map(lesson => ({
-      id: lesson.id,
-      day: lesson.dayOfWeek,
-      subject: lesson.subject.name,
-      teacher: lesson.teacher.user.name,
-      time: `${lesson.startTime} - ${lesson.endTime}`,
-      room: lesson.room ?? "General Room",
+    const mappedTimetable = timetableEntries.map(entry => ({
+      id: entry.id,
+      day: entry.day,
+      subject: entry.subject.name,
+      teacher: entry.teacher.user.name,
+      time: entry.timeSlot,
+      room: "Classroom",
     }));
 
     // 2. Fetch Grades
@@ -66,10 +66,10 @@ export async function GET(request: Request) {
     const mappedGrades = grades.map(grd => ({
       id: grd.id,
       subject: grd.subject.name,
-      percentage: grd.percentage,
-      score: grd.score,
-      maxScore: grd.maxScore,
-      category: grd.category,
+      percentage: grd.marks,
+      score: grd.marks,
+      maxScore: 100,
+      category: grd.examType,
       feedback: grd.feedback ?? "Good progress.",
     }));
 

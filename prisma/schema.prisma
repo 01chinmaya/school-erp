@@ -30,38 +30,6 @@ enum GradeCategory {
   PROJECT
 }
 
-enum InvoiceStatus {
-  PAID
-  PENDING
-}
-
-enum InvoiceCategory {
-  TUITION
-  TRANSPORT
-  SPORTS
-  LIBRARY
-  LUNCH
-  UNIFORM
-  OTHER
-}
-
-enum ExamType {
-  MIDTERM
-  FINAL
-  QUARTERLY
-  UNIT_TEST
-}
-
-enum DayOfWeek {
-  MONDAY
-  TUESDAY
-  WEDNESDAY
-  THURSDAY
-  FRIDAY
-  SATURDAY
-  SUNDAY
-}
-
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -79,15 +47,17 @@ model User {
 }
 
 model Teacher {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String           @id @default(uuid())
+  userId           String           @unique
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   // Relations
-  subjects  Subject[] // Subjects this teacher teaches
-  classes   Class[]   // Classes where this teacher is the head teacher
-  lessons   Lesson[]  // Scheduled lessons for this teacher
-  grades    Grade[]   // Grades assigned by this teacher
+  subjects         Subject[]        @relation("SubjectTeacherList")
+  assignedSubjects Subject[]        @relation("SubjectTeacherDirect")
+  classes          Class[]          // Classes where this teacher is the head teacher
+  lessons          Lesson[]         // Scheduled lessons for this teacher
+  grades           Grade[]          // Grades assigned by this teacher
+  timetableEntries TimetableEntry[]
 }
 
 model Student {
@@ -114,28 +84,51 @@ model Parent {
 }
 
 model Class {
-  id             String    @id @default(uuid())
-  name           String    @unique // e.g. "Grade 10-A"
-  room           String?   // Classroom number
+  id               String           @id @default(uuid())
+  name             String           @unique // e.g. "Grade 10-A"
+  section          String           @default("A")
+  room             String?          // Classroom number
   
-  classTeacherId String?
-  classTeacher   Teacher?  @relation(fields: [classTeacherId], references: [id], onDelete: SetNull)
+  classTeacherId   String?
+  classTeacher     Teacher?         @relation(fields: [classTeacherId], references: [id], onDelete: SetNull)
   
-  students       Student[]
-  lessons        Lesson[]
+  students         Student[]
+  lessons          Lesson[]
+  subjects         Subject[]
+  timetableEntries TimetableEntry[]
 }
 
 model Subject {
-  id          String    @id @default(uuid())
-  name        String    @unique // e.g. "Mathematics"
-  code        String    @unique // e.g. "MATH101"
-  description String?
+  id               String           @id @default(uuid())
+  name             String           @unique // e.g. "Mathematics"
+  code             String           @unique // e.g. "MATH101"
+  description      String?
+  passingMarks     Int              @default(40)
+  
+  classId          String?
+  class            Class?           @relation(fields: [classId], references: [id], onDelete: SetNull)
+  
+  teacherId        String?
+  teacher          Teacher?         @relation("SubjectTeacherDirect", fields: [teacherId], references: [id], onDelete: SetNull)
   
   // Relations
-  teachers    Teacher[] // Teachers qualified to teach this subject
-  lessons     Lesson[]  // Lessons under this subject
-  grades      Grade[]   // Grades under this subject
-  attendances Attendance[]
+  teachers         Teacher[]        @relation("SubjectTeacherList")
+  lessons          Lesson[]         // Lessons under this subject
+  grades           Grade[]          // Grades under this subject
+  attendances      Attendance[]
+  timetableEntries TimetableEntry[]
+}
+
+model TimetableEntry {
+  id        String   @id @default(uuid())
+  day       String
+  timeSlot  String
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 }
 
 model Lesson {
@@ -149,7 +142,7 @@ model Lesson {
   teacherId String
   teacher   Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   
-  dayOfWeek DayOfWeek
+  dayOfWeek String
   startTime String    // e.g. "08:30"
   endTime   String    // e.g. "09:30"
   room      String?   // Lab or lecture hall override
@@ -160,7 +153,7 @@ model Attendance {
   studentId String
   student   Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
   date      DateTime         // Date of attendance
-  status    AttendanceStatus
+  status    String           // "PRESENT", "ABSENT", "LATE"
   remarks   String?          // e.g., Reason for absence/lateness
   subjectId String?
   subject   Subject?         @relation(fields: [subjectId], references: [id], onDelete: SetNull)
@@ -177,25 +170,26 @@ model Grade {
   teacherId  String
   teacher    Teacher       @relation(fields: [teacherId], references: [id], onDelete: Restrict)
   
-  score      Float         // Obtained marks
-  maxScore   Float         // Maximum possible marks
-  percentage Float         // Pre-calculated percentage (score / maxScore * 100)
-  category   GradeCategory
-  examType   ExamType?
+  marks      Int           @default(0)
+  examType   String        // "MIDTERM", "FINAL", etc.
+  score      Float         @default(0) // Obtained marks (backward compatibility)
+  maxScore   Float         @default(100) // Maximum possible marks (backward compatibility)
+  percentage Float         @default(0) // Pre-calculated percentage (backward compatibility)
+  category   GradeCategory @default(EXAM)
   feedback   String?       // Teacher feedback comments
   date       DateTime      @default(now())
 }
 
 model Invoice {
-  id          String          @id @default(uuid())
+  id          String   @id @default(uuid())
   studentId   String
-  student     Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  amount      Float           // Total fee due
-  category    InvoiceCategory // TUITION, TRANSPORT, SPORTS, etc.
-  status      InvoiceStatus   @default(PENDING)
-  title       String          // e.g. "Term 1 Tuition Fee"
+  student     Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  amount      Int      @default(0) // Total fee due
+  category    String   // TUITION, TRANSPORT, etc.
+  status      String   @default("UNPAID")
+  title       String   // e.g. "Term 1 Tuition Fee"
   description String?
   dueDate     DateTime
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

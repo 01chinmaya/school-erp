@@ -169,7 +169,7 @@ export default function FinancePanel() {
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Denied</h3>
             <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
-              Account pending administrative activation. Please contact the Mayur Academy administration desk.
+              Account pending administrative verification at Mayur Academy.
             </p>
             <button
               onClick={handleLogout}

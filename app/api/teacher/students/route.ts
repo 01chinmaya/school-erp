@@ -28,14 +28,30 @@ export async function GET(request: Request) {
 
     const teacherId = user.teacherProfile.id;
 
-    // Fetch classes for this teacher
-    // We can return classes where they teach or all classes if they have none assigned (to let the portal function)
+    // Display only classes and subjects assigned to the logged-in teacher
+    let subjects = await db.subject.findMany({
+      where: { teacherId },
+      include: { class: true }
+    });
+
+    // Fallback: If no subjects assigned, return all so the portal is functional in the prototype
+    if (subjects.length === 0) {
+      subjects = await db.subject.findMany({
+        include: { class: true }
+      });
+    }
+
+    const classesTaught = subjects.map(s => s.class).filter(Boolean);
     let classes = await db.class.findMany({
-      where: { classTeacherId: teacherId },
+      where: {
+        OR: [
+          { classTeacherId: teacherId },
+          { id: { in: classesTaught.map(c => c!.id) } }
+        ]
+      }
     });
 
     if (classes.length === 0) {
-      // Fallback: return all classes so they can see something in the demo
       classes = await db.class.findMany();
     }
 
@@ -57,7 +73,6 @@ export async function GET(request: Request) {
 
     // Map students to UI structure
     const mappedStudents = students.map(std => {
-      // Get the latest attendance status if any
       const latestStatus = std.attendance[0]?.status ?? "PRESENT"; // Default to PRESENT if unrecorded
 
       return {
@@ -68,14 +83,13 @@ export async function GET(request: Request) {
       };
     });
 
-    const subjects = await db.subject.findMany();
-
     return NextResponse.json({
       success: true,
       classes,
       selectedClassId: classId,
       students: mappedStudents,
       subjects,
+      teacherId,
     });
   } catch (error) {
     console.error("Teacher stats fetch error:", error);
@@ -95,11 +109,8 @@ export async function POST(request: Request) {
     }
 
     const attendanceDate = new Date(date);
-    // Standardize to YYYY-MM-DD to avoid time differences
     attendanceDate.setUTCHours(0, 0, 0, 0);
 
-    // Check if attendance already exists for this student on this date
-    // SQLite/PostgreSQL might differ, using standard date comparison
     const existing = await db.attendance.findFirst({
       where: {
         studentId,
