@@ -55,6 +55,10 @@ export default function LoginPage() {
 
       // Success - Redirect based on role
       const role = data.user.role;
+      localStorage.setItem("userEmail", data.user.email);
+      localStorage.setItem("userRole", role);
+      localStorage.setItem("userName", data.user.name);
+
       if (role === "ADMIN") {
         router.push("/admin");
       } else if (role === "TEACHER") {
