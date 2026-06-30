@@ -12,9 +12,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Validate role
+    // Convert role to uppercase to match schema enum
+    const upperRole = role.toUpperCase();
     const validRoles = ["ADMIN", "TEACHER", "STUDENT", "PARENT"];
-    if (!validRoles.includes(role)) {
+    if (!validRoles.includes(upperRole)) {
       return NextResponse.json(
         { error: "Invalid role specified" },
         { status: 400 }
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     }
 
     let classId = "";
-    if (role === "STUDENT") {
+    if (upperRole === "STUDENT") {
       // Find first available class or create a default one
       let defaultClass = await db.class.findFirst();
       if (!defaultClass) {
@@ -52,23 +53,21 @@ export async function POST(request: Request) {
     const userData: any = {
       email,
       password, // Hashed password in actual prod, stored as is for prototype
-      role,
+      role: upperRole,
       name,
     };
 
-    if (role === "TEACHER") {
+    if (upperRole === "TEACHER") {
       userData.teacherProfile = {
-        create: {
-          subject: "General",
-        },
+        create: {},
       };
-    } else if (role === "STUDENT") {
+    } else if (upperRole === "STUDENT") {
       userData.studentProfile = {
         create: {
           classId: classId,
         },
       };
-    } else if (role === "PARENT") {
+    } else if (upperRole === "PARENT") {
       userData.parentProfile = {
         create: {},
       };
