@@ -45,6 +45,13 @@ enum InvoiceCategory {
   OTHER
 }
 
+enum ExamType {
+  MIDTERM
+  FINAL
+  QUARTERLY
+  UNIT_TEST
+}
+
 enum DayOfWeek {
   MONDAY
   TUESDAY
@@ -128,6 +135,7 @@ model Subject {
   teachers    Teacher[] // Teachers qualified to teach this subject
   lessons     Lesson[]  // Lessons under this subject
   grades      Grade[]   // Grades under this subject
+  attendances Attendance[]
 }
 
 model Lesson {
@@ -154,6 +162,8 @@ model Attendance {
   date      DateTime         // Date of attendance
   status    AttendanceStatus
   remarks   String?          // e.g., Reason for absence/lateness
+  subjectId String?
+  subject   Subject?         @relation(fields: [subjectId], references: [id], onDelete: SetNull)
 }
 
 model Grade {
@@ -171,6 +181,7 @@ model Grade {
   maxScore   Float         // Maximum possible marks
   percentage Float         // Pre-calculated percentage (score / maxScore * 100)
   category   GradeCategory
+  examType   ExamType?
   feedback   String?       // Teacher feedback comments
   date       DateTime      @default(now())
 }

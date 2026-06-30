@@ -147,12 +147,13 @@ export default function FinancePanel() {
     router.push("/");
   };
 
-  // Calculations
-  const totalOutstanding = invoices.filter(i => i.status === "PENDING").reduce((sum, i) => sum + i.amount, 0);
-  const totalPaid = invoices.filter(i => i.status === "PAID").reduce((sum, i) => sum + i.amount, 0);
-  const totalInvoices = invoices.length;
+  // Calculations safely
+  const activeInvoices = invoices || [];
+  const totalOutstanding = activeInvoices.filter(i => i.status === "PENDING").reduce((sum, i) => sum + i.amount, 0);
+  const totalPaid = activeInvoices.filter(i => i.status === "PAID").reduce((sum, i) => sum + i.amount, 0);
+  const totalInvoices = activeInvoices.length;
 
-  const isEmpty = invoices.length === 0;
+  const isEmpty = activeInvoices.length === 0;
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 transition-colors duration-200">
@@ -398,7 +399,7 @@ export default function FinancePanel() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60 text-xs">
-                      {invoices.map((inv) => (
+                      {activeInvoices.map((inv) => (
                         <tr key={inv.id} className="hover:bg-slate-50/30 dark:hover:bg-zinc-800/10 transition-colors">
                           <td className="p-4 pl-6 font-bold text-slate-900 dark:text-white">{inv.studentName}</td>
                           <td className="p-4 text-slate-500 dark:text-zinc-400">{inv.title}</td>

@@ -64,11 +64,14 @@ export async function GET(request: Request) {
       };
     });
 
+    const subjects = await db.subject.findMany();
+
     return NextResponse.json({
       success: true,
       classes,
       selectedClassId: classId,
       students: mappedStudents,
+      subjects,
     });
   } catch (error) {
     console.error("Teacher stats fetch error:", error);

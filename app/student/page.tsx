@@ -121,9 +121,9 @@ export default function StudentDashboard() {
   };
 
   // Filter timetable for selected day
-  const filteredTimetable = timetable.filter(item => item.day === selectedDay);
+  const filteredTimetable = (timetable || []).filter(item => item.day === selectedDay);
 
-  const isEmpty = !student || (timetable.length === 0 && grades.length === 0 && (attendance?.total ?? 0) === 0);
+  const isEmpty = !student || ((timetable || []).length === 0 && (grades || []).length === 0 && (attendance?.total ?? 0) === 0);
 
   const days = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
 
@@ -328,14 +328,14 @@ export default function StudentDashboard() {
 
               </div>
 
-              {/* Academic Gradebook */}
+          {/* Academic Gradebook */}
               <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl shadow-xs">
                 <h4 className="font-bold text-slate-900 dark:text-white mb-2">Academic Gradebook</h4>
                 <p className="text-xs text-slate-400 mb-6">Formal assessments and examinations transcript</p>
 
-                {grades.length > 0 ? (
+                {(grades || []).length > 0 ? (
                   <div className="space-y-3">
-                    {grades.map(grd => {
+                    {(grades || []).map(grd => {
                       const isExpanded = expandedGradeId === grd.id;
                       
                       return (

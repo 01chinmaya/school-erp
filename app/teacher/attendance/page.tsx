@@ -17,13 +17,20 @@ import {
   GraduationCap,
   AlertCircle,
   Loader2,
-  UserCheck
+  UserCheck,
+  BookOpen
 } from "lucide-react";
 
 interface ClassData {
   id: string;
   name: string;
   room: string | null;
+}
+
+interface SubjectData {
+  id: string;
+  name: string;
+  code: string;
 }
 
 interface Student {
@@ -38,7 +45,14 @@ export default function TeacherAttendance() {
   const [isDark, setIsDark] = useState(false);
   const [loading, setLoading] = useState(true);
   const [classes, setClasses] = useState<ClassData[]>([]);
+  const [subjects, setSubjects] = useState<SubjectData[]>([]);
+  
   const [selectedClassId, setSelectedClassId] = useState("");
+  const [selectedSubjectId, setSelectedSubjectId] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return new Date().toISOString().split("T")[0];
+  });
+  
   const [students, setStudents] = useState<Student[]>([]);
   const [teacherName, setTeacherName] = useState("Faculty Member");
 
@@ -71,7 +85,7 @@ export default function TeacherAttendance() {
     }
   };
 
-  // Fetch classes and students
+  // Fetch classes, subjects and students
   const fetchRoster = async (classId?: string) => {
     try {
       const email = localStorage.getItem("userEmail") || "teacher@school.com";
@@ -84,8 +98,9 @@ export default function TeacherAttendance() {
       const data = await response.json();
       
       if (response.ok && data.success) {
-        setClasses(data.classes);
-        setStudents(data.students);
+        setClasses(data.classes || []);
+        setSubjects(data.subjects || []);
+        setStudents(data.students || []);
         if (!classId && data.selectedClassId) {
           setSelectedClassId(data.selectedClassId);
         }
@@ -110,20 +125,19 @@ export default function TeacherAttendance() {
 
   // Mark attendance status for a student
   const handleMarkStatus = async (studentId: string, status: "PRESENT" | "ABSENT" | "LATE") => {
-    // 1. Update state locally for fast transition response
     setStudents(prev =>
-      prev.map(std => (std.id === studentId ? { ...std, status } : std))
+      (prev || []).map(std => (std.id === studentId ? { ...std, status } : std))
     );
 
-    // 2. Post updates back to DB
     try {
-      await fetch("/api/teacher/students", {
+      await fetch("/api/teacher/attendance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           studentId,
-          date: new Date().toISOString(),
+          date: selectedDate,
           status,
+          subjectId: selectedSubjectId || null,
         }),
       });
     } catch (error) {
@@ -136,17 +150,18 @@ export default function TeacherAttendance() {
     router.push("/");
   };
 
-  // Calculate totals
-  const presentCount = students.filter(s => s.status === "PRESENT").length;
-  const absentCount = students.filter(s => s.status === "ABSENT").length;
-  const lateCount = students.filter(s => s.status === "LATE").length;
-  const totalCount = students.length;
+  // Calculate totals safely
+  const activeStudents = students || [];
+  const presentCount = activeStudents.filter(s => s.status === "PRESENT").length;
+  const absentCount = activeStudents.filter(s => s.status === "ABSENT").length;
+  const lateCount = activeStudents.filter(s => s.status === "LATE").length;
+  const totalCount = activeStudents.length;
 
   const healthScore = totalCount > 0 
     ? Math.round(((presentCount + (lateCount * 0.5)) / totalCount) * 100) 
     : 0;
 
-  const isEmpty = classes.length === 0;
+  const isEmpty = (classes || []).length === 0;
 
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 transition-colors duration-200">
@@ -154,7 +169,6 @@ export default function TeacherAttendance() {
       {/* Sidebar Navigation */}
       <aside className="w-64 bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 flex flex-col justify-between z-20">
         <div>
-          {/* Header Branding */}
           <div className="p-6 flex items-center justify-between border-b border-slate-100 dark:border-zinc-800/80">
             <div className="flex items-center gap-2 font-black text-lg tracking-tight text-slate-900 dark:text-white">
               <GraduationCap className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
@@ -167,7 +181,6 @@ export default function TeacherAttendance() {
             <span className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400">Class Instructor</span>
           </div>
 
-          {/* Links */}
           <nav className="p-4 space-y-2">
             <button className="flex items-center gap-4 w-full p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 font-bold text-sm text-left">
               <UserCheck className="w-5 h-5" />
@@ -176,7 +189,6 @@ export default function TeacherAttendance() {
           </nav>
         </div>
 
-        {/* Footer actions */}
         <div className="p-4 border-t border-slate-100 dark:border-zinc-800/80">
           <button
             onClick={handleLogout}
@@ -196,7 +208,6 @@ export default function TeacherAttendance() {
           <h2 className="text-xl font-bold text-slate-900 dark:text-white">Daily Attendance Manager</h2>
 
           <div className="flex items-center gap-4">
-            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className="p-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:scale-105 active:scale-95 transition-all cursor-pointer"
@@ -234,31 +245,67 @@ export default function TeacherAttendance() {
             <div className="space-y-8 max-w-5xl mx-auto">
               
               {/* Top Selector Panel */}
-              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs">
-                <div className="flex items-center gap-4 w-full sm:w-auto">
+              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl grid grid-cols-1 md:grid-cols-3 gap-6 shadow-xs">
+                
+                {/* Date Picker Input */}
+                <div className="flex items-center gap-4">
                   <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400">
                     <Calendar className="w-6 h-6" />
                   </div>
-                  <div>
+                  <div className="w-full">
                     <span className="block text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Date Tracked</span>
-                    <h3 className="text-md font-bold text-slate-900 dark:text-white">{new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h3>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                    />
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <span className="text-xs font-bold text-slate-500 dark:text-zinc-400 whitespace-nowrap">Selected Class:</span>
-                  <select
-                    value={selectedClassId}
-                    onChange={handleClassChange}
-                    className="w-full sm:w-48 bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-500 focus:border-transparent transition-all cursor-pointer font-bold"
-                  >
-                    {classes.map(cls => (
-                      <option key={cls.id} value={cls.id}>
-                        {cls.name}
-                      </option>
-                    ))}
-                  </select>
+                {/* Class selector */}
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <div className="w-full">
+                    <span className="block text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Classroom</span>
+                    <select
+                      value={selectedClassId}
+                      onChange={handleClassChange}
+                      className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold cursor-pointer"
+                    >
+                      {(classes || []).map(cls => (
+                        <option key={cls.id} value={cls.id}>
+                          {cls.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
+
+                {/* Subject selector */}
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <div className="w-full">
+                    <span className="block text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-wider">Subject Context</span>
+                    <select
+                      value={selectedSubjectId}
+                      onChange={(e) => setSelectedSubjectId(e.target.value)}
+                      className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-1.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold cursor-pointer"
+                    >
+                      <option value="">General Attendance</option>
+                      {(subjects || []).map(sub => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.name} ({sub.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
               </div>
 
               {/* KPI Cards Grid */}
@@ -334,7 +381,7 @@ export default function TeacherAttendance() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/60">
-                      {students.map((student) => (
+                      {activeStudents.map((student) => (
                         <tr key={student.id} className="hover:bg-slate-50/30 dark:hover:bg-zinc-800/10 transition-colors">
                           <td className="p-4 pl-6">
                             <span className="font-bold text-sm text-slate-900 dark:text-white">{student.name}</span>
