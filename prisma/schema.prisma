@@ -61,6 +61,7 @@ model User {
   password  String   // Hashed password
   role      Role     @default(STUDENT)
   name      String
+  approved  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

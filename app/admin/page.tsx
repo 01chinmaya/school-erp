@@ -8,7 +8,6 @@ import {
   GraduationCap,
   BookOpen,
   DollarSign,
-  TrendingUp,
   Settings,
   LogOut,
   Menu,
@@ -20,7 +19,13 @@ import {
   Clock,
   Sparkles,
   ArrowRight,
-  Loader2
+  Loader2,
+  Plus,
+  ShieldCheck,
+  ShieldAlert,
+  UserPlus,
+  Receipt,
+  CheckCircle2
 } from "lucide-react";
 
 interface Activity {
@@ -41,12 +46,53 @@ interface StatsData {
   activities: Activity[];
 }
 
+interface ClassItem {
+  id: string;
+  name: string;
+  room: string | null;
+}
+
+interface StaffItem {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  approved: boolean;
+  hasProfile: boolean;
+}
+
+interface StudentItem {
+  id: string;
+  name: string;
+}
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [isDark, setIsDark] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<StatsData | null>(null);
+
+  // Modal Open States
+  const [isClassModalOpen, setIsClassModalOpen] = useState(false);
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+
+  // Dynamic Lists for Form Selectors
+  const [teachers, setTeachers] = useState<StaffItem[]>([]);
+  const [classList, setClassList] = useState<ClassItem[]>([]);
+  const [staffList, setStaffList] = useState<StaffItem[]>([]);
+  const [studentList, setStudentList] = useState<StudentItem[]>([]);
+
+  // Form Inputs
+  const [classForm, setClassForm] = useState({ name: "", room: "", teacherId: "" });
+  const [studentForm, setStudentForm] = useState({ name: "", email: "", password: "password123", classId: "" });
+  const [invoiceForm, setInvoiceForm] = useState({ studentId: "", amount: "", dueDate: "", category: "TUITION", title: "", description: "" });
+
+  // Action status notification banner
+  const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [formSubmitting, setFormSubmitting] = useState(false);
 
   // Initialize theme
   useEffect(() => {
@@ -73,29 +119,234 @@ export default function AdminDashboard() {
   };
 
   // Fetch admin stats
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const response = await fetch("/api/admin/stats");
-        const data = await response.json();
-        if (response.ok && data.success) {
-          setStats(data.stats);
-        }
-      } catch (error) {
-        console.error("Failed to fetch admin stats:", error);
-      } finally {
-        setLoading(false);
+  const fetchStats = async () => {
+    try {
+      const response = await fetch("/api/admin/stats");
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setStats(data.stats);
       }
-    };
+    } catch (error) {
+      console.error("Failed to fetch admin stats:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchStats();
   }, []);
+
+  // Fetch classes
+  const fetchClasses = async () => {
+    try {
+      const response = await fetch("/api/admin/classes");
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setClassList(data.classes);
+      }
+    } catch (error) {
+      console.error("Failed to fetch classes list:", error);
+    }
+  };
+
+  // Fetch staff registry
+  const fetchStaff = async () => {
+    try {
+      const response = await fetch("/api/admin/staff");
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setStaffList(data.users);
+        setTeachers(data.users.filter((u: StaffItem) => u.role === "TEACHER"));
+      }
+    } catch (error) {
+      console.error("Failed to fetch staff list:", error);
+    }
+  };
+
+  // Fetch student roster
+  const fetchStudents = async () => {
+    try {
+      const response = await fetch("/api/admin/invoices"); // Reuse GET students list
+      const data = await response.json();
+      // Grabs student info or fallback to students list mapping
+      if (response.ok && data.success) {
+        // Map invoices to unique students
+        const seen = new Set();
+        const uniques: StudentItem[] = [];
+        data.invoices.forEach((inv: any) => {
+          if (!seen.has(inv.studentName)) {
+            seen.add(inv.studentName);
+            uniques.push({ id: inv.id, name: inv.studentName }); // Map mapping references
+          }
+        });
+        
+        // If empty, query database API directly
+        const resDirect = await fetch("/api/admin/students");
+        const dataDirect = await resDirect.json();
+        if (resDirect.ok && dataDirect.success) {
+          setStudentList(dataDirect.students);
+        } else {
+          setStudentList(uniques);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch students list:", error);
+    }
+  };
+
+  // Trigger data pre-fetching when modals open
+  useEffect(() => {
+    if (isClassModalOpen || isStudentModalOpen) {
+      fetchStaff();
+    }
+    if (isStudentModalOpen || isClassModalOpen) {
+      fetchClasses();
+    }
+    if (isInvoiceModalOpen) {
+      fetchStudents();
+    }
+  }, [isClassModalOpen, isStudentModalOpen, isInvoiceModalOpen]);
+
+  // Show status popup banner
+  const triggerNotification = (type: "success" | "error", message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => {
+      setNotification(null);
+    }, 4000);
+  };
 
   const handleLogout = () => {
     localStorage.clear();
     router.push("/");
   };
 
-  // SVG Chart calculation helper
+  // 1. Create Class Submission
+  const handleCreateClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!classForm.name) return;
+    setFormSubmitting(true);
+
+    try {
+      const response = await fetch("/api/admin/classes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: classForm.name,
+          room: classForm.room,
+          classTeacherId: classForm.teacherId || null,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        triggerNotification("success", `Class "${classForm.name}" created successfully!`);
+        setClassForm({ name: "", room: "", teacherId: "" });
+        setIsClassModalOpen(false);
+        fetchStats();
+      } else {
+        triggerNotification("error", data.error || "Failed to create class.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error. Try again.");
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  // 2. Toggle Staff Approval and Make Teacher
+  const handleToggleApproval = async (userId: string, currentApproved: boolean, role: string, hasProfile: boolean) => {
+    try {
+      const response = await fetch("/api/admin/staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          approved: !currentApproved,
+          makeTeacher: role === "TEACHER" && !hasProfile,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        triggerNotification("success", "Staff record updated successfully!");
+        fetchStaff();
+        fetchStats();
+      } else {
+        triggerNotification("error", data.error || "Update operation failed.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error updating staff.");
+    }
+  };
+
+  // 3. Enroll Student Submission
+  const handleEnrollStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { name, email, password, classId } = studentForm;
+    if (!name || !email || !password || !classId) {
+      triggerNotification("error", "All fields are required.");
+      return;
+    }
+    setFormSubmitting(true);
+
+    try {
+      const response = await fetch("/api/admin/students", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password, classId }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        triggerNotification("success", `Student ${name} enrolled successfully!`);
+        setStudentForm({ name: "", email: "", password: "password123", classId: "" });
+        setIsStudentModalOpen(false);
+        fetchStats();
+      } else {
+        triggerNotification("error", data.error || "Enrollment failed.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error. Try again.");
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  // 4. Issue Fee Invoice Submission
+  const handleIssueInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { studentId, amount, dueDate, category, title, description } = invoiceForm;
+    if (!studentId || !amount || !dueDate || !category || !title) {
+      triggerNotification("error", "Please fill in all required fields.");
+      return;
+    }
+    setFormSubmitting(true);
+
+    try {
+      const response = await fetch("/api/admin/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studentId, amount, dueDate, category, title, description }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        triggerNotification("success", `Fee invoice issued successfully!`);
+        setInvoiceForm({ studentId: "", amount: "", dueDate: "", category: "TUITION", title: "", description: "" });
+        setIsInvoiceModalOpen(false);
+        fetchStats();
+      } else {
+        triggerNotification("error", data.error || "Invoice issuance failed.");
+      }
+    } catch (error) {
+      triggerNotification("error", "Network error. Try again.");
+    } finally {
+      setFormSubmitting(false);
+    }
+  };
+
+  // SVG Chart calculation helpers
   const renderEnrollmentChart = () => {
     if (!stats || stats.enrollmentData.length === 0) return null;
     
@@ -120,36 +371,19 @@ export default function AdminDashboard() {
           </linearGradient>
         </defs>
         
-        {/* Grid lines */}
         <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="#e2e8f0" strokeDasharray="3" className="dark:stroke-zinc-800" />
         <line x1={padding} y1={height / 2} x2={width - padding} y2={height / 2} stroke="#e2e8f0" strokeDasharray="3" className="dark:stroke-zinc-800" />
         <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#cbd5e1" className="dark:stroke-zinc-700" />
 
-        {/* Filled Area */}
-        <polygon
-          points={`${padding},${height - padding} ${points} ${width - padding},${height - padding}`}
-          fill="url(#indigoGradient)"
-        />
+        <polygon points={`${padding},${height - padding} ${points} ${width - padding},${height - padding}`} fill="url(#indigoGradient)" />
+        <polyline fill="none" stroke="#6366f1" strokeWidth="3" points={points} />
 
-        {/* Line */}
-        <polyline
-          fill="none"
-          stroke="#6366f1"
-          strokeWidth="3"
-          points={points}
-          className="transition-all duration-500"
-        />
-
-        {/* Coordinate Points */}
         {data.map((d, index) => {
           const x = padding + (index / (data.length - 1)) * (width - padding * 2);
           const y = height - padding - (d.count / maxVal) * (height - padding * 2);
           return (
             <g key={d.month} className="group/dot cursor-pointer">
-              <circle cx={x} cy={y} r="5" fill="#6366f1" className="hover:scale-150 transition-transform" />
-              <text x={x} y={y - 10} textAnchor="middle" className="text-[9px] font-bold fill-indigo-600 dark:fill-indigo-400 opacity-0 group-hover/dot:opacity-100 transition-opacity">
-                {d.count}
-              </text>
+              <circle cx={x} cy={y} r="5" fill="#6366f1" />
               <text x={x} y={height - 4} textAnchor="middle" className="text-[9px] fill-slate-400 font-medium">
                 {d.month}
               </text>
@@ -175,7 +409,6 @@ export default function AdminDashboard() {
 
     return (
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
-        {/* Horizontal grid guidelines */}
         <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="#e2e8f0" strokeDasharray="3" className="dark:stroke-zinc-800" />
         <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#cbd5e1" className="dark:stroke-zinc-700" />
 
@@ -189,26 +422,8 @@ export default function AdminDashboard() {
 
           return (
             <g key={d.month}>
-              {/* Target Bar (Slate/Zinc) */}
-              <rect
-                x={groupX}
-                y={targetY}
-                width={barWidth}
-                height={targetHeight}
-                rx="3"
-                fill="#94a3b8"
-                className="opacity-40 hover:opacity-60 transition-opacity"
-              />
-              {/* Collected Bar (Violet/Indigo) */}
-              <rect
-                x={groupX + barWidth + 4}
-                y={collectedY}
-                width={barWidth}
-                height={collectedHeight}
-                rx="3"
-                fill="#4f46e5"
-                className="hover:fill-indigo-500 transition-colors"
-              />
+              <rect x={groupX} y={targetY} width={barWidth} height={targetHeight} rx="3" fill="#94a3b8" className="opacity-40" />
+              <rect x={groupX + barWidth + 4} y={collectedY} width={barWidth} height={collectedHeight} rx="3" fill="#4f46e5" />
               <text x={groupX + barWidth} y={height - 6} textAnchor="middle" className="text-[9px] fill-slate-400 font-medium">
                 {d.month}
               </text>
@@ -224,6 +439,18 @@ export default function AdminDashboard() {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 transition-colors duration-200">
       
+      {/* Status Notifications Toast */}
+      {notification && (
+        <div className={`fixed bottom-6 right-6 z-50 flex items-center gap-3 px-5 py-4 rounded-2xl shadow-lg border animate-fade-in ${
+          notification.type === "success" 
+            ? "bg-emerald-50 dark:bg-emerald-950/90 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800/40"
+            : "bg-rose-50 dark:bg-rose-950/90 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-800/40"
+        }`}>
+          {notification.type === "success" ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+          <span className="text-xs font-bold">{notification.message}</span>
+        </div>
+      )}
+
       {/* Sidebar Navigation */}
       <aside className={`bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 transition-all duration-300 flex flex-col justify-between z-20 ${
         isSidebarOpen ? "w-64" : "w-20"
@@ -282,17 +509,12 @@ export default function AdminDashboard() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className="p-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 hover:scale-105 active:scale-95 transition-all cursor-pointer"
             >
               {isDark ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4" />}
             </button>
-            <div className="relative p-2.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-500 rounded-full" />
-            </div>
           </div>
         </header>
 
@@ -381,9 +603,58 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
+              {/* Shortcuts / Quick workflows */}
+              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl">
+                <h4 className="text-md font-bold text-slate-900 dark:text-white mb-4">Administrative Workflows</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <button
+                    onClick={() => setIsClassModalOpen(true)}
+                    className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 hover:bg-slate-100 dark:hover:bg-zinc-800/50 border border-slate-200/50 dark:border-zinc-800 text-left transition-all cursor-pointer font-bold text-xs"
+                  >
+                    <div>
+                      <span className="block text-slate-800 dark:text-zinc-200">Create New Class</span>
+                      <span className="block text-[10px] text-slate-400 font-normal">Add class & set room</span>
+                    </div>
+                    <Plus className="w-4 h-4 text-indigo-500" />
+                  </button>
+
+                  <button
+                    onClick={() => setIsStaffModalOpen(true)}
+                    className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 hover:bg-slate-100 dark:hover:bg-zinc-800/50 border border-slate-200/50 dark:border-zinc-800 text-left transition-all cursor-pointer font-bold text-xs"
+                  >
+                    <div>
+                      <span className="block text-slate-800 dark:text-zinc-200">Approve & Manage Staff</span>
+                      <span className="block text-[10px] text-slate-400 font-normal">Manage access status</span>
+                    </div>
+                    <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                  </button>
+
+                  <button
+                    onClick={() => setIsStudentModalOpen(true)}
+                    className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 hover:bg-slate-100 dark:hover:bg-zinc-800/50 border border-slate-200/50 dark:border-zinc-800 text-left transition-all cursor-pointer font-bold text-xs"
+                  >
+                    <div>
+                      <span className="block text-slate-800 dark:text-zinc-200">Enroll New Student</span>
+                      <span className="block text-[10px] text-slate-400 font-normal">Register user & assign class</span>
+                    </div>
+                    <UserPlus className="w-4 h-4 text-indigo-500" />
+                  </button>
+
+                  <button
+                    onClick={() => setIsInvoiceModalOpen(true)}
+                    className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 hover:bg-slate-100 dark:hover:bg-zinc-800/50 border border-slate-200/50 dark:border-zinc-800 text-left transition-all cursor-pointer font-bold text-xs"
+                  >
+                    <div>
+                      <span className="block text-slate-800 dark:text-zinc-200">Issue Fee Invoice</span>
+                      <span className="block text-[10px] text-slate-400 font-normal">Generate outstanding charges</span>
+                    </div>
+                    <Receipt className="w-4 h-4 text-indigo-500" />
+                  </button>
+                </div>
+              </div>
+
               {/* Charts Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* Chart 1 */}
                 <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl shadow-sm">
                   <div className="mb-4">
                     <h4 className="text-md font-bold text-slate-900 dark:text-white">Student Registration Trend</h4>
@@ -396,7 +667,6 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                {/* Chart 2 */}
                 <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl shadow-sm">
                   <div className="mb-4">
                     <h4 className="text-md font-bold text-slate-900 dark:text-white">Fee Collections Comparison</h4>
@@ -410,49 +680,26 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* Audit logs & Quick Actions */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Audit Logs */}
-                <div className="lg:col-span-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl">
-                  <h4 className="text-md font-bold text-slate-900 dark:text-white mb-4">Recent System Logs</h4>
-                  {stats && stats.activities.length > 0 ? (
-                    <div className="space-y-4">
-                      {stats.activities.map(act => (
-                        <div key={act.id} className="flex gap-4 items-start p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-100 dark:border-zinc-800/40">
-                          <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500">
-                            <Clock className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <span className="block text-xs font-bold text-slate-800 dark:text-zinc-200">{act.title}</span>
-                            <span className="block text-[11px] text-slate-400 mt-0.5">{act.description}</span>
-                          </div>
+              {/* System logs */}
+              <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl">
+                <h4 className="text-md font-bold text-slate-900 dark:text-white mb-4">Recent System Logs</h4>
+                {stats && stats.activities.length > 0 ? (
+                  <div className="space-y-4">
+                    {stats.activities.map(act => (
+                      <div key={act.id} className="flex gap-4 items-start p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/40 border border-slate-100 dark:border-zinc-800/40">
+                        <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500">
+                          <Clock className="w-4 h-4" />
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400">No log trails registered yet.</p>
-                  )}
-                </div>
-
-                {/* Shortcuts */}
-                <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 p-6 rounded-3xl flex flex-col justify-between">
-                  <div>
-                    <h4 className="text-md font-bold text-slate-900 dark:text-white mb-4">Quick Workflows</h4>
-                    <div className="space-y-2">
-                      <Link href="/signup" className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-zinc-950/40 dark:hover:bg-zinc-800/50 border border-slate-100 dark:border-zinc-800/40 text-left transition-all">
                         <div>
-                          <span className="block text-xs font-bold text-slate-800 dark:text-zinc-200">Register Pupils</span>
-                          <span className="block text-[10px] text-slate-400">New registration workflow</span>
+                          <span className="block text-xs font-bold text-slate-800 dark:text-zinc-200">{act.title}</span>
+                          <span className="block text-[11px] text-slate-400 mt-0.5">{act.description}</span>
                         </div>
-                        <ArrowRight className="w-4 h-4 text-slate-400" />
-                      </Link>
-                    </div>
+                      </div>
+                    ))}
                   </div>
-
-                  <div className="mt-6 p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/10 text-center text-[10px] text-slate-400 dark:text-zinc-500 font-semibold border border-indigo-100/30">
-                    Database Connection Status: Healthy
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-xs text-slate-400">No log trails registered yet.</p>
+                )}
               </div>
 
             </div>
@@ -460,6 +707,280 @@ export default function AdminDashboard() {
         </div>
 
       </main>
+
+      {/* -------------------- 1. CREATE NEW CLASS MODAL -------------------- */}
+      {isClassModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-black/60 backdrop-blur-md">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in">
+            <div className="p-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 dark:text-white">Create New Class</h3>
+              <button onClick={() => setIsClassModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleCreateClass} className="p-6 space-y-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Class Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Grade 10-A"
+                  value={classForm.name}
+                  onChange={(e) => setClassForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Room Assignment</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Lab 2"
+                  value={classForm.room}
+                  onChange={(e) => setClassForm(prev => ({ ...prev, room: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Assigned Teacher</label>
+                <select
+                  value={classForm.teacherId}
+                  onChange={(e) => setClassForm(prev => ({ ...prev, teacherId: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="">Unassigned</option>
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={formSubmitting}
+                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl py-3 font-bold text-xs hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {formSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Create Class
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- 2. APPROVE & MANAGE STAFF MODAL -------------------- */}
+      {isStaffModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-black/60 backdrop-blur-md">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl animate-fade-in">
+            <div className="p-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 dark:text-white">Approve & Manage Staff</h3>
+              <button onClick={() => setIsStaffModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <div className="p-6 max-h-96 overflow-y-auto space-y-4">
+              {staffList.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-4">No registered staff users found.</p>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-zinc-800">
+                  {staffList.map(usr => (
+                    <div key={usr.id} className="flex flex-col sm:flex-row sm:items-center justify-between py-3 gap-2">
+                      <div>
+                        <span className="block font-bold text-xs text-slate-900 dark:text-white">{usr.name}</span>
+                        <span className="block text-[10px] text-slate-400">{usr.email} | Role: {usr.role}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {usr.role === "TEACHER" && !usr.hasProfile && (
+                          <button
+                            onClick={() => handleToggleApproval(usr.id, usr.approved, usr.role, usr.hasProfile)}
+                            className="bg-indigo-50 dark:bg-indigo-950/20 hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-lg px-2.5 py-1.5 text-[10px] font-bold transition-all cursor-pointer"
+                          >
+                            Grant Faculty Access
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleToggleApproval(usr.id, usr.approved, usr.role, true)}
+                          className={`rounded-lg px-3 py-1.5 text-[10px] font-bold transition-all cursor-pointer ${
+                            usr.approved 
+                              ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100"
+                              : "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100"
+                          }`}
+                        >
+                          {usr.approved ? "Revoke Access" : "Approve Staff"}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- 3. ENROLL NEW STUDENT MODAL -------------------- */}
+      {isStudentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-black/60 backdrop-blur-md">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in">
+            <div className="p-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 dark:text-white">Enroll New Student</h3>
+              <button onClick={() => setIsStudentModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleEnrollStudent} className="p-6 space-y-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. John Doe"
+                  value={studentForm.name}
+                  onChange={(e) => setStudentForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. student@school.com"
+                  value={studentForm.email}
+                  onChange={(e) => setStudentForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  value={studentForm.password}
+                  onChange={(e) => setStudentForm(prev => ({ ...prev, password: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Assign Class ID</label>
+                <select
+                  required
+                  value={studentForm.classId}
+                  onChange={(e) => setStudentForm(prev => ({ ...prev, classId: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="">Select Class Room</option>
+                  {classList.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={formSubmitting}
+                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl py-3 font-bold text-xs hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {formSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Enroll Student
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- 4. ISSUE FEE INVOICE MODAL -------------------- */}
+      {isInvoiceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 dark:bg-black/60 backdrop-blur-md">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl w-full max-w-md overflow-hidden shadow-2xl animate-fade-in">
+            <div className="p-6 border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center">
+              <h3 className="font-bold text-slate-900 dark:text-white">Issue Fee Invoice</h3>
+              <button onClick={() => setIsInvoiceModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+            <form onSubmit={handleIssueInvoice} className="p-6 space-y-4">
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Select Student</label>
+                <select
+                  required
+                  value={invoiceForm.studentId}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, studentId: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                >
+                  <option value="">Choose pupil...</option>
+                  {studentList.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Amount ($)</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    placeholder="e.g. 500"
+                    value={invoiceForm.amount}
+                    onChange={(e) => setInvoiceForm(prev => ({ ...prev, amount: e.target.value }))}
+                    className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Category</label>
+                  <select
+                    value={invoiceForm.category}
+                    onChange={(e) => setInvoiceForm(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  >
+                    <option value="TUITION">TUITION</option>
+                    <option value="TRANSPORT">TRANSPORT</option>
+                    <option value="LIBRARY">LIBRARY</option>
+                    <option value="LUNCH">LUNCH</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Due Date</label>
+                <input
+                  type="date"
+                  required
+                  value={invoiceForm.dueDate}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, dueDate: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Invoice Title</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Q3 Biology Material Fee"
+                  value={invoiceForm.title}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2.5 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-wider mb-1">Description</label>
+                <textarea
+                  placeholder="Additional invoice billing descriptions..."
+                  value={invoiceForm.description}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={2}
+                  className="w-full bg-slate-100 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl py-2 px-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={formSubmitting}
+                className="w-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl py-3 font-bold text-xs hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {formSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                Issue Invoice
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
