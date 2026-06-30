@@ -45,6 +45,7 @@ export default function FinancePanel() {
   const router = useRouter();
   const [isDark, setIsDark] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isUnapproved, setIsUnapproved] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   
@@ -97,6 +98,8 @@ export default function FinancePanel() {
       
       if (response.ok && data.success) {
         setInvoices(data.invoices);
+      } else if (data.unapproved) {
+        setIsUnapproved(true);
       }
     } catch (error) {
       console.error("Failed to fetch invoices:", error);
@@ -158,8 +161,29 @@ export default function FinancePanel() {
   return (
     <div className="flex min-h-screen bg-slate-50 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 transition-colors duration-200">
       
-      {/* Sidebar Navigation */}
-      <aside className="w-64 bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 flex flex-col justify-between z-20">
+      {isUnapproved ? (
+        <div className="flex items-center justify-center flex-grow p-8">
+          <div className="flex flex-col items-center justify-center p-12 rounded-3xl bg-white/70 dark:bg-zinc-900/60 backdrop-blur-xl border border-indigo-100 dark:border-zinc-800 text-center max-w-lg mx-auto my-12 shadow-xl animate-fade-in">
+            <div className="p-4 rounded-full bg-amber-50 dark:bg-amber-950/20 text-amber-500 border border-amber-100 dark:border-amber-900/30 mb-5 animate-pulse">
+              <AlertCircle className="w-12 h-12" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Access Denied</h3>
+            <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
+              Account pending administrative activation. Please contact the Mayur Academy administration desk.
+            </p>
+            <button
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-rose-600 to-red-600 text-white rounded-xl px-5 py-3 font-bold text-sm hover:shadow-lg transition-all hover:scale-[1.01]"
+            >
+              Sign Out
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-grow w-full">
+          {/* Sidebar Navigation */}
+          <aside className="w-64 bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 flex flex-col justify-between z-20">
         <div>
           {/* Header Branding */}
           <div className="p-6 flex items-center justify-between border-b border-slate-100 dark:border-zinc-800/80">
@@ -440,6 +464,8 @@ export default function FinancePanel() {
 
       </main>
 
+        </div>
+      )}
     </div>
   );
 }

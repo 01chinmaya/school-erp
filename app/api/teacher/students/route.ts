@@ -18,7 +18,11 @@ export async function GET(request: Request) {
       },
     });
 
-    if (!user || !user.teacherProfile) {
+    if (!user || !user.approved || user.role !== "TEACHER") {
+      return NextResponse.json({ success: false, unapproved: true });
+    }
+
+    if (!user.teacherProfile) {
       return NextResponse.json({ error: "Teacher profile not found" }, { status: 404 });
     }
 

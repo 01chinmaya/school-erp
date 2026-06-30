@@ -22,7 +22,11 @@ export async function GET(request: Request) {
       },
     });
 
-    if (!user || !user.studentProfile) {
+    if (!user || !user.approved || user.role !== "STUDENT") {
+      return NextResponse.json({ success: false, unapproved: true });
+    }
+
+    if (!user.studentProfile) {
       return NextResponse.json({ error: "Student profile not found" }, { status: 404 });
     }
 

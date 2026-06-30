@@ -11,6 +11,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Role parameter is required" }, { status: 400 });
     }
 
+    if (email) {
+      const dbUser = await db.user.findUnique({ where: { email } });
+      if (!dbUser || !dbUser.approved) {
+        return NextResponse.json({ success: false, unapproved: true });
+      }
+    }
+
     let invoices: any[] = [];
 
     if (role === "ADMIN") {

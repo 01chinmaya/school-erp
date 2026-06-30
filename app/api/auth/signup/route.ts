@@ -49,12 +49,16 @@ export async function POST(request: Request) {
       classId = defaultClass.id;
     }
 
+    const userCount = await db.user.count();
+    const isFirstUser = userCount === 0;
+
     // Prepare create payload
     const userData: any = {
       email,
       password, // Hashed password in actual prod, stored as is for prototype
-      role: upperRole,
+      role: isFirstUser ? "ADMIN" : upperRole,
       name,
+      approved: isFirstUser ? true : false,
     };
 
     if (upperRole === "TEACHER") {

@@ -3,6 +3,16 @@ import db from "@/lib/db";
 
 export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const email = searchParams.get("email");
+
+    if (email) {
+      const adminUser = await db.user.findUnique({ where: { email } });
+      if (!adminUser || !adminUser.approved || adminUser.role !== "ADMIN") {
+        return NextResponse.json({ success: false, unapproved: true });
+      }
+    }
+
     const studentCount = await db.student.count();
     const teacherCount = await db.teacher.count();
     const classCount = await db.class.count();
